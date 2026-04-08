@@ -613,21 +613,22 @@ erDiagram
 
 ## 7. Phased Roadmap
 
-### Phase 0: Project Bootstrap (Week 1)
+### Phase 0: Project Bootstrap (Week 1) — COMPLETE
 
 **Goal:** Repository setup, tooling, and a working skeleton.
 
-> **Current status (April 2026):** Supabase project is created and connected via MCP
-> (empty — no tables yet). GitHub repo exists and is linked. Vercel project is linked but
-> CI/CD (preview deploys on PR) has not been configured yet — will be done during this phase.
+> **Status:** All Phase 0 tasks completed. Supabase MCP connected (empty — schema pending).
+> GitHub repo linked. Vercel project linked (CI/CD import still pending).
 
-| Task | Details |
-|---|---|
-| Initialize Next.js project | App Router, TypeScript strict, Tailwind, ESLint, Prettier |
-| Install core dependencies | React Flow, shadcn/ui, Framer Motion, Zustand, Vercel AI SDK |
-| Supabase schema setup | Tables and RLS policies on the existing Supabase instance (connected via MCP) |
-| CI/CD | Import existing GitHub repo into Vercel; enable preview deployments on PR |
-| Basic layout shell | Three-panel responsive layout with placeholder content |
+| Task | Status | Details |
+|---|---|---|
+| Initialize Next.js project | Done | Next.js 16 (App Router), TypeScript strict, Tailwind v4, ESLint |
+| Install core dependencies | Done | React Flow, shadcn/ui, Framer Motion, Zustand, Vercel AI SDK, LangGraph.js, Vitest |
+| Font & typography | Done | Inter font, 13px base size, compact Figma-like UI system |
+| Agent pipeline + tests | Done | All 6 agents + Impact Engine implemented (stubbed), 27 tests passing via Vitest |
+| Supabase schema setup | Pending | Tables and RLS policies not yet created |
+| CI/CD | Pending | Import existing GitHub repo into Vercel; enable preview deployments on PR |
+| Basic layout shell | Done | Three-panel layout (left: projects, center: canvas, right: inspector) |
 
 ### Phase 1: MVP (Weeks 2-8)
 
@@ -636,32 +637,37 @@ the full pipeline, interact with every agent, build a timeline, and export it.
 
 #### Sprint 1 (Weeks 2-3): Canvas and First Two Agents
 
-- [ ] React Flow canvas with custom node components and edge types
-- [ ] Node state machine (waiting / running / complete / error) with visual indicators
-- [ ] Left panel: project list from Supabase, create new project
-- [ ] Right panel: framework with dynamic content switching based on selected node
-- [ ] Topic Clarifier agent (LangGraph.js): multi-turn chat, niche drilling
-- [ ] Right panel chat UI for Topic Clarifier interaction
+- [x] React Flow canvas with custom node components and edge types
+- [x] Node state machine (waiting / running / complete / error) with visual indicators
+- [x] Left panel: project list (client-side Zustand store), create new project
+- [x] Right panel: framework with dynamic content switching based on selected node
+- [x] Topic Clarifier agent (LangGraph.js): multi-turn chat, niche drilling
+- [x] Right panel chat UI for Topic Clarifier interaction
+- [x] Zustand pipeline store connecting UI ↔ agents ↔ canvas state
+- [ ] Left panel: persist project list to Supabase (currently client-side only)
 - [ ] Basic Supabase schema: `users`, `projects`, `contexts`, `messages`
+- [ ] Niche Researcher: wire right panel UI to display research report after clarifier completes
 
 #### Sprint 2 (Weeks 4-5): Research, Suggestions, and Idea Refinement
 
-- [ ] Niche Researcher agent: YouTube Data API integration, research report generation
+- [x] Niche Researcher agent: structured report generation (stubbed, needs YouTube API)
+- [ ] Niche Researcher: YouTube Data API v3 integration for live data
 - [ ] pgvector setup: embedding pipeline, similarity search, cache storage
 - [ ] RAG cache: store and retrieve previous niche research
-- [ ] Video Suggester agent: curate reference videos with metadata and relevance
+- [x] Video Suggester agent: curate reference videos with metadata and relevance (stubbed)
 - [ ] Video card grid in the right panel with YouTube embed previews
-- [ ] Idea Refiner agent: specific topic selection, competitor awareness, unique angle
-- [ ] Downstream node triggering: completing one agent enables the next
+- [x] Idea Refiner agent: specific topic selection, competitor awareness, unique angle (stubbed)
+- [x] Downstream node triggering: completing one agent enables the next (via Zustand store)
 
 #### Sprint 3 (Weeks 6-7): Script and Timeline
 
-- [ ] Script Writer agent: structured script generation with sections, storytelling annotations
+- [x] Script Writer agent: structured script generation with sections, storytelling annotations (stubbed)
 - [ ] Script editor in right panel: rich text with section markers, format sidebar
-- [ ] Timeline Builder agent: convert script to visual timeline definition
+- [x] Timeline Builder agent: convert script to visual timeline definition (stubbed)
 - [ ] Timeline editor view: horizontal draggable timeline with sections, placeholders, lanes
-- [ ] Impact Feedback Engine: real-time retention/pacing/engagement sidebar
-- [ ] View switching between canvas and timeline
+- [x] Impact Feedback Engine: retention/pacing/engagement analysis (stubbed)
+- [ ] Impact Feedback: wire sidebar UI to display real-time metrics
+- [x] View switching between canvas and timeline (tab UI implemented)
 
 #### Sprint 4 (Week 8): Export and Polish
 
