@@ -83,7 +83,7 @@ Every feature is tagged with its target phase: **MVP**, **v1**, **v2**, or **v3+
 | Timeline Builder | MVP | Visual, draggable timeline with sections, durations, B-roll placeholders, and real-time impact feedback |
 | Impact Feedback Engine | MVP | Sidebar insights on how timeline/script changes affect retention, storytelling coherence, and engagement (niche-aware) |
 | Timeline Export | MVP | Export to JSON, FCPXML (Premiere/Final Cut), and EDL (DaVinci) formats |
-| Assisted Editing Room | v1 | Dedicated in-app video editing environment with AI-assisted gap-filling (audio, video, transitions, effects, motion graphics) |
+| Assisted Editing Room | v1 | In-app interface where the user views the constructed timeline with its gaps and suggested content, then decides how to fill each gap: with their own uploaded media (proprietary video/audio) or with AI-generated content from integrated partners (ElevenLabs, etc.). Not a full NLE — no complex effects or transitions. |
 | Context-Aware Project Agent | v1 | Always-on agent that monitors the full project state and continuously updates context/config as the user makes changes |
 
 ### 2.2 User Interface
@@ -95,7 +95,7 @@ Every feature is tagged with its target phase: **MVP**, **v1**, **v2**, or **v3+
 | Node State Visualization | MVP | Nodes show waiting/running/complete/error states; dependency edges between nodes |
 | Right Panel (Event-Driven) | MVP | Dynamically renders config, previews, or chat based on which node/element is selected |
 | Canvas-to-Timeline View Switch | MVP | Toggle between the pipeline canvas and the dedicated timeline editor |
-| Editing Room Interface | v1 | Dedicated video editing UI with assisted timeline, media bins, effects panel, and AI sidebar |
+| Editing Room Interface | v1 | Timeline gap-filling UI: view the timeline with gaps highlighted, fill with uploaded media or AI-generated content from integrations. Media bin + AI sidebar. No effects panel. |
 | Project Templates Gallery | v1 | Pre-built pipeline flows for popular niches (e.g., "Music Video Essay", "Sports Highlights Breakdown") |
 | Mobile-Responsive Canvas | v2 | Read-only review mode optimized for phone/tablet |
 | Mobile Companion App | v3+ | Native or PWA companion for reviewing projects on the go |
@@ -145,11 +145,11 @@ Every feature is tagged with its target phase: **MVP**, **v1**, **v2**, or **v3+
 | **UI** | React 19 + Tailwind CSS + shadcn/ui + Framer Motion | Modern component library, utility-first styling, smooth animations |
 | **Node Canvas** | xyflow (React Flow) | Most mature infinite-canvas library; custom nodes, edges, real-time updates, drag-and-drop |
 | **Agent Orchestration** | LangGraph.js | Stateful directed graphs with checkpointing; perfect for sequential-but-revisitable, human-in-the-loop agent pipelines |
-| **AI Models** | Vercel AI SDK + Claude / GPT-4o / Gemini | Multi-provider flexibility; streaming responses; multi-modal support for image/video analysis |
-| **Database** | Supabase (PostgreSQL + pgvector) | Auth, relational data, vector search for RAG, Realtime subscriptions, Storage — single managed service |
+| **AI Models** | Vercel AI SDK + Claude / GPT-4o / Gemini | Multi-provider flexibility; streaming responses; multi-modal support for image/video analysis. **Confirmed as the provider abstraction layer.** See note in section 4.3 on how it interfaces with LangGraph.js. |
+| **Database** | Supabase (PostgreSQL + pgvector) | Auth, relational data, vector search for RAG, Realtime subscriptions, Storage — single managed service. **Instance created and connected via MCP** (empty, tables to be created in Phase 0). |
 | **State Management** | Zustand | Lightweight, performant client state; integrates cleanly with React Flow's internal store |
 | **Video Processing** | FFmpeg.wasm + WebCodecs API | Browser-first video encoding; zero server cost; privacy-preserving (files stay on device) |
-| **Hosting** | Vercel (frontend + serverless) + Supabase (backend) | Zero-ops deployment; automatic scaling; edge functions |
+| **Hosting** | Vercel (frontend + serverless) + Supabase (backend) | Zero-ops deployment; automatic scaling; edge functions. **Vercel project already linked** — CI/CD setup pending. Custom domain to be configured post-MVP. |
 | **Payments** | Stripe | Industry standard; Supabase has first-class Stripe webhook integration patterns |
 | **Observability** | LangSmith (agent tracing) + Vercel Analytics | Debug agent behavior; monitor performance and usage |
 
@@ -366,6 +366,26 @@ Each agent is a node in a LangGraph directed graph with:
 - **Tool calling:** Agents have access to tools (YouTube API, RAG query, web search) via LangGraph's
   tool-calling mechanism.
 
+#### How Vercel AI SDK and LangGraph.js work together
+
+> **Note:** This section exists because the relationship between these two libraries needs to be
+> well-understood before implementation begins. A dedicated spike/prototype is recommended early
+> in Sprint 1 to validate the integration.
+
+- **Vercel AI SDK** handles the LLM communication layer: sending prompts, streaming responses,
+  managing provider-specific API differences (Claude, GPT-4o, Gemini), and exposing a unified
+  interface for tool calling. It abstracts away the transport so switching providers is a config
+  change, not a code rewrite.
+- **LangGraph.js** handles the orchestration layer: defining the directed graph of agents, managing
+  state that flows between them, checkpointing after each step, and implementing human-in-the-loop
+  pauses. It does *not* call LLMs directly — it delegates that to the model layer.
+- **Integration pattern:** Each LangGraph node (agent) uses the Vercel AI SDK's `generateText` or
+  `streamText` functions internally to communicate with the LLM. LangGraph manages *when* and *in
+  what order* agents run, what state they receive, and what state they produce. The Vercel AI SDK
+  manages *how* each individual LLM call is made.
+- In short: LangGraph.js is the workflow engine; Vercel AI SDK is the LLM driver. They are
+  complementary, not competing.
+
 ---
 
 ## 5. UI/UX Specification
@@ -430,12 +450,20 @@ Each agent is a node in a LangGraph directed graph with:
 
 **Mode C: Editing Room (v1)**
 
-- Full video editing interface.
-- Media bin (uploaded assets, generated assets, stock).
-- Multi-track timeline (video, audio, overlay, text).
-- Preview window with playback.
-- AI assistant sidebar: suggestions for filling gaps, improving transitions, adding effects.
-- Properties panel for selected clip (filters, transforms, audio levels).
+- **Not a full NLE.** The Editing Room's purpose is to let the user see the timeline with its
+  gaps and suggested content, then decide how to fill each gap.
+- Timeline view with clearly marked gap slots (dashed/highlighted regions where content is needed).
+- For each gap, the user can:
+  - Upload their own media (proprietary video, audio, images).
+  - Request AI-generated content from integrated partners (e.g., ElevenLabs for voice-over,
+    Runway/Pika for B-roll) — always optional.
+  - Browse and insert from a stock media library.
+- Media bin (uploaded assets, AI-generated assets, stock).
+- Preview window with basic playback.
+- AI assistant sidebar: contextual suggestions for what content would fit each gap, based on the
+  script and niche context.
+- Simple cuts and arrangement (reorder, trim, split). No complex effects, transitions, or
+  CapCut/Premiere-style editing features.
 
 ### 5.4 Right Panel — Context-Sensitive Inspector
 
@@ -450,7 +478,7 @@ The right panel renders different content depending on what is selected:
 | Idea Refiner node | Idea editor, competitor comparison cards |
 | Script node | Script section editor, format configuration, storytelling tips |
 | Timeline node / segment | Segment properties, duration, B-roll suggestions, impact metrics |
-| Editing Room clip | Clip properties, effect controls, AI suggestions |
+| Editing Room gap / clip | Gap-filling options (upload, AI-generate, stock), clip trim/split controls, AI suggestions for content |
 
 ### 5.5 Interaction Principles
 
@@ -589,12 +617,16 @@ erDiagram
 
 **Goal:** Repository setup, tooling, and a working skeleton.
 
+> **Current status (April 2026):** Supabase project is created and connected via MCP
+> (empty — no tables yet). GitHub repo exists and is linked. Vercel project is linked but
+> CI/CD (preview deploys on PR) has not been configured yet — will be done during this phase.
+
 | Task | Details |
 |---|---|
 | Initialize Next.js project | App Router, TypeScript strict, Tailwind, ESLint, Prettier |
 | Install core dependencies | React Flow, shadcn/ui, Framer Motion, Zustand, Vercel AI SDK |
-| Supabase project setup | Create project, configure Auth (email + Google OAuth), set up initial tables |
-| CI/CD | GitHub repo, Vercel project linked, preview deployments on PR |
+| Supabase schema setup | Tables and RLS policies on the existing Supabase instance (connected via MCP) |
+| CI/CD | Import existing GitHub repo into Vercel; enable preview deployments on PR |
 | Basic layout shell | Three-panel responsive layout with placeholder content |
 
 ### Phase 1: MVP (Weeks 2-8)
@@ -656,14 +688,16 @@ the full pipeline, interact with every agent, build a timeline, and export it.
 
 **Goal:** Monetization-ready product with the Editing Room, billing, version history, and polish.
 
-#### Editing Room
+#### Editing Room (Gap-Filling Interface)
 
-- [ ] Multi-track timeline interface (video, audio, overlay, text tracks)
-- [ ] Media bin: user uploads, stock placeholders, AI-generated suggestions
+- [ ] Timeline view with gap slots clearly highlighted (dashed regions where content is needed)
+- [ ] Gap-filling workflow: for each gap, choose upload (own media), AI-generate (partner integration), or stock media
+- [ ] Media bin: user uploads, AI-generated assets, stock library browser
 - [ ] Preview window with basic playback (WebCodecs)
-- [ ] AI assistant sidebar: contextual suggestions for filling gaps, transitions, effects
+- [ ] AI assistant sidebar: contextual suggestions for what content fits each gap (script/niche-aware)
+- [ ] Simple cuts and arrangement: reorder, trim, split segments
 - [ ] FFmpeg.wasm: multi-format export (MP4, WebM) with encoding options
-- [ ] Integration point for future generative APIs (stubbed interfaces)
+- [ ] Integration points for generative APIs (ElevenLabs voice-over, Runway/Pika B-roll — stubbed interfaces for v1, functional in v2)
 
 #### Monetization
 
@@ -680,11 +714,10 @@ the full pipeline, interact with every agent, build a timeline, and export it.
 - [ ] Restore any previous version
 - [ ] Branch: duplicate a version into a new context for experimentation
 
-#### Templates and Onboarding
+#### Templates
 
 - [ ] 5-10 pre-built pipeline templates for popular niches
 - [ ] Template gallery accessible from "New Project"
-- [ ] Guided onboarding tour (first-time user experience)
 
 #### Analytics Dashboard
 
@@ -694,7 +727,8 @@ the full pipeline, interact with every agent, build a timeline, and export it.
 
 #### v1 Acceptance Criteria
 
-- A paying user can edit a video in-app with AI assistance and export a finished MP4.
+- A paying user can view the timeline with gaps, fill them with uploaded media or AI-generated
+  content (stubbed integrations), perform simple cuts/arrangement, and export a finished MP4.
 - Free users can go through the full research pipeline and export a JSON timeline.
 - Version history allows restoring any previous project state.
 - Stripe billing works end-to-end (subscribe, upgrade, cancel, webhook-driven tier updates).
@@ -714,6 +748,7 @@ the full pipeline, interact with every agent, build a timeline, and export it.
 | YouTube/TikTok upload | Direct publish from the app. AI-generated title, description, tags, and thumbnail suggestions based on full project context. |
 | Cloud rendering | Server-side rendering via Mux or Shotstack for projects that exceed browser capabilities. Pro-tier feature. |
 | Retention simulator | Visual watch-time curve overlay on the timeline. Updates in real-time as the user adjusts pacing, sections, hooks. |
+| Guided onboarding tour | Interactive first-time user walkthrough: tooltips on each UI region, sample pipeline run, template suggestion. |
 
 #### v2 Acceptance Criteria
 
@@ -791,26 +826,27 @@ upgrade moment — the user has a complete timeline and wants to bring it to lif
 | Risk | Severity | Mitigation |
 |---|---|---|
 | Scope creep before MVP | High | The phased roadmap is the mitigation. Ruthlessly cut anything not in the MVP feature list. Ship and iterate. |
-| Editing Room complexity rivaling real NLEs | High | The Editing Room is an *assisted* editor, not a Premiere competitor. Scope it to: trim, arrange, add transitions/effects, mix audio. Complex edits belong in the export-to-NLE flow. |
-| User confusion with hybrid UI paradigm | Medium | Guided onboarding tour. Templates that pre-populate the canvas. Tooltips on first interaction with each element. |
+| Editing Room complexity rivaling real NLEs | High | **Resolved (scope locked).** The Editing Room is a gap-filling interface, not an editor. Users view the timeline with gaps, fill them with uploaded or AI-generated content, and do simple cuts/arrangement. No effects, transitions, or NLE-like features. Complex editing belongs in the export-to-NLE flow. |
+| User confusion with hybrid UI paradigm | Medium | Templates that pre-populate the canvas (v1). Guided onboarding tour planned for v2. Tooltips on first interaction with each element. |
 | "Helper-first" ethos perceived as limited | Low | Marketing must clearly articulate the value: "you make the creative decisions; we give you the research, structure, and tools to execute faster." Feature parity on the research side must be genuinely excellent. |
 
 ### Open Questions
 
 1. **Naming:** "Creator Tool" is a working title. Final product name TBD (the prior conversation
    used "VidForge" as a placeholder).
-2. **LLM provider strategy:** Start with a single provider (Claude via Vercel AI SDK) for
-   simplicity, or multi-provider from day one for resilience? Recommendation: single provider for
-   MVP, abstract behind Vercel AI SDK so switching is trivial.
+2. ~~**LLM provider strategy:**~~ **Resolved.** Vercel AI SDK is confirmed as the provider
+   abstraction layer. Start with a single provider for MVP, switch or add providers trivially
+   via the SDK. See section 4.3 for how it interfaces with LangGraph.js.
 3. **Timeline export fidelity:** How much metadata can we realistically encode in FCPXML/EDL
    (section labels, B-roll markers, audio cues)? Needs a spike/prototype in Sprint 4.
-4. **Editing Room scope:** Should the MVP-phase Editing Room (v1) support only cuts + arrangement,
-   or also basic effects/transitions? Recommend cuts + arrangement + basic transitions for v1;
-   effects in v1.1.
-5. **Self-hosted vs. SaaS:** Is there interest in a self-hosted/on-prem option for studios?
-   Likely v3+ at earliest; table for now.
-6. **Content moderation:** Do we need to moderate what users research/create? Probably not for
-   MVP (private tool), but worth considering for shared/community RAG in v2.
+4. ~~**Editing Room scope:**~~ **Resolved.** The Editing Room is a gap-filling interface: the user
+   views the timeline with gaps, fills them with uploaded media or AI-generated content from
+   partner integrations, and performs simple cuts + arrangement. No complex effects, transitions,
+   or NLE-like features. See updated spec in sections 2.1, 5.3, and 7 (v1 roadmap).
+5. ~~**Self-hosted vs. SaaS:**~~ **Resolved.** SaaS only. Hosted on Vercel (already linked) with
+   Vercel's provided URL; custom domain to be configured later. No self-hosting planned.
+6. **Content moderation:** Deferred. Not a concern for MVP or v1 (private tool). Will be revisited
+   when shared/community RAG is introduced in v2.
 
 ---
 

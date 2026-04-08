@@ -1,0 +1,12 @@
+---
+description: Core project conventions for Creator Tool development
+alwaysApply: true
+---
+
+# Creator Tool — Project Conventions
+
+- Always plan multi-step work as a numbered TODO list. Mark each step complete as it finishes.
+- Run `npm run build` and `npm run lint` after any significant set of changes. Fix any errors before moving on.
+- Follow the "helper-first" ethos: AI assists the creator, never replaces creative decisions.
+- Use TypeScript strict mode. No `any` types unless absolutely unavoidable (and document why).
+- Use PowerShell-compatible commands (no `&&` chaining; use `;` or separate calls).
