@@ -4,9 +4,9 @@ import type {
   AgentName,
   AgentNodeStatus,
   ClarifierMessage,
+  NicheDefinition,
 } from "@/lib/agents/types";
 import { createInitialPipelineState } from "@/lib/agents/types";
-import { runTopicClarifier } from "@/lib/agents/topic-clarifier";
 import { runNicheResearcher } from "@/lib/agents/niche-researcher";
 import { runVideoSuggester } from "@/lib/agents/video-suggester";
 import { runIdeaRefiner } from "@/lib/agents/idea-refiner";
@@ -30,7 +30,19 @@ interface PipelineStore {
   setActiveProject: (id: string) => void;
   setSelectedNode: (id: AgentName | null) => void;
 
-  startTopicClarifier: (rawIdea: string) => Promise<void>;
+  /** Append a user message and ensure Topic Clarifier output exists (in-progress conversation). */
+  appendClarifierUserMessage: (text: string) => void;
+  /** Append assistant reply after streaming completes. */
+  appendClarifierAssistantMessage: (text: string) => void;
+  setTopicClarifierRunning: (running: boolean) => void;
+  setTopicClarifierError: (message: string | null) => void;
+
+  /**
+   * Calls OpenAI via POST /api/agents/topic-clarifier/finalize — human-in-the-loop "done".
+   * Sets nicheDefinition, isComplete, and marks node complete for downstream agents.
+   */
+  finalizeTopicClarifier: () => Promise<void>;
+
   runRemainingPipeline: () => Promise<void>;
 
   getActiveProject: () => WorkspaceProject | null;
@@ -87,49 +99,185 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
     return project.pipeline.topicClarifier.output?.conversation ?? [];
   },
 
-  startTopicClarifier: async (rawIdea: string) => {
-    const { activeProjectId } = get();
+  appendClarifierUserMessage: (text: string) => {
+    const activeProjectId = get().activeProjectId;
+    if (!activeProjectId) return;
+
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    set((s) => ({
+      projects: updateProject(s.projects, activeProjectId, (p) => {
+        const prev = p.pipeline.topicClarifier.output?.conversation ?? [];
+        const nextConv: ClarifierMessage[] = [
+          ...prev,
+          { role: "user", content: trimmed },
+        ];
+        const firstUser = nextConv.find((m) => m.role === "user");
+        return {
+          title:
+            p.title === "Untitled Project" && firstUser
+              ? firstUser.content.slice(0, 40) || p.title
+              : p.title,
+          status: "in_progress",
+          pipeline: {
+            ...p.pipeline,
+            topicClarifier: {
+              ...p.pipeline.topicClarifier,
+              status: "waiting",
+              error: undefined,
+              input: firstUser ? { rawIdea: firstUser.content } : null,
+              output: {
+                conversation: nextConv,
+                nicheDefinition: null,
+                isComplete: false,
+              },
+            },
+          },
+        };
+      }),
+    }));
+  },
+
+  appendClarifierAssistantMessage: (text: string) => {
+    const activeProjectId = get().activeProjectId;
+    if (!activeProjectId) return;
+
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    set((s) => ({
+      projects: updateProject(s.projects, activeProjectId, (p) => {
+        const prev = p.pipeline.topicClarifier.output?.conversation ?? [];
+        return {
+          pipeline: {
+            ...p.pipeline,
+            topicClarifier: {
+              ...p.pipeline.topicClarifier,
+              output: {
+                conversation: [...prev, { role: "assistant", content: trimmed }],
+                nicheDefinition: null,
+                isComplete: false,
+              },
+            },
+          },
+        };
+      }),
+    }));
+  },
+
+  setTopicClarifierRunning: (running: boolean) => {
+    const activeProjectId = get().activeProjectId;
     if (!activeProjectId) return;
 
     set((s) => ({
       projects: updateProject(s.projects, activeProjectId, (p) => ({
-        title: rawIdea.slice(0, 40) || "Untitled Project",
-        status: "in_progress",
         pipeline: {
           ...p.pipeline,
           topicClarifier: {
             ...p.pipeline.topicClarifier,
-            status: "running" as const,
-            input: { rawIdea },
+            status: running ? "running" : "waiting",
+          },
+        },
+      })),
+    }));
+  },
+
+  setTopicClarifierError: (message: string | null) => {
+    const activeProjectId = get().activeProjectId;
+    if (!activeProjectId) return;
+
+    set((s) => ({
+      projects: updateProject(s.projects, activeProjectId, (p) => ({
+        pipeline: {
+          ...p.pipeline,
+          topicClarifier: {
+            ...p.pipeline.topicClarifier,
+            status: message ? "error" : "waiting",
+            error: message ?? undefined,
+          },
+        },
+      })),
+    }));
+  },
+
+  finalizeTopicClarifier: async () => {
+    const activeProjectId = get().activeProjectId;
+    if (!activeProjectId) return;
+
+    const project = get().getActiveProject();
+    const messages = project?.pipeline.topicClarifier.output?.conversation ?? [];
+    if (messages.length < 2) return;
+
+    set((s) => ({
+      projects: updateProject(s.projects, activeProjectId, (p) => ({
+        pipeline: {
+          ...p.pipeline,
+          topicClarifier: {
+            ...p.pipeline.topicClarifier,
+            status: "running",
+            error: undefined,
           },
         },
       })),
     }));
 
     try {
-      const output = await runTopicClarifier({ rawIdea });
+      const res = await fetch("/api/agents/topic-clarifier/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages }),
+      });
+
+      const data = (await res.json()) as {
+        nicheDefinition?: NicheDefinition;
+        error?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? `Finalize failed (${res.status})`);
+      }
+
+      if (!data.nicheDefinition) {
+        throw new Error("No nicheDefinition in response");
+      }
+
+      const nicheDefinition = data.nicheDefinition;
+
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          "[Creator Tool] Topic Clarifier output (NicheDefinition for next agent):\n",
+          JSON.stringify(nicheDefinition, null, 2)
+        );
+      }
 
       set((s) => ({
         projects: updateProject(s.projects, activeProjectId, (p) => ({
+          title: nicheDefinition.category.slice(0, 40) || p.title,
           pipeline: {
             ...p.pipeline,
             topicClarifier: {
               ...p.pipeline.topicClarifier,
-              status: "complete" as const,
-              output,
+              status: "complete",
+              output: {
+                conversation: messages,
+                nicheDefinition,
+                isComplete: true,
+              },
             },
           },
         })),
       }));
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "Finalize failed";
       set((s) => ({
         projects: updateProject(s.projects, activeProjectId, (p) => ({
           pipeline: {
             ...p.pipeline,
             topicClarifier: {
               ...p.pipeline.topicClarifier,
-              status: "error" as const,
-              error: e instanceof Error ? e.message : "Unknown error",
+              status: "error",
+              error: msg,
             },
           },
         })),
@@ -158,18 +306,15 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
       }));
     };
 
-    // Niche Researcher
     setAgent("nicheResearcher", "running");
     try {
       const researchOut = await runNicheResearcher({ nicheDefinition: niche });
       setAgent("nicheResearcher", "complete", { input: { nicheDefinition: niche }, output: researchOut });
 
-      // Video Suggester
       setAgent("videoSuggester", "running");
       const suggestOut = await runVideoSuggester({ report: researchOut.report });
       setAgent("videoSuggester", "complete", { input: { report: researchOut.report }, output: suggestOut });
 
-      // Idea Refiner
       setAgent("ideaRefiner", "running");
       const refineOut = await runIdeaRefiner({
         references: suggestOut.references,
@@ -185,7 +330,6 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
         output: refineOut,
       });
 
-      // Script Writer
       setAgent("scriptWriter", "running");
       const scriptOut = await runScriptWriter({ idea: refineOut.idea, report: researchOut.report });
       setAgent("scriptWriter", "complete", {
@@ -193,7 +337,6 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
         output: scriptOut,
       });
 
-      // Timeline Builder
       setAgent("timelineBuilder", "running");
       const timelineOut = await runTimelineBuilder({ script: scriptOut.script });
       setAgent("timelineBuilder", "complete", {
@@ -201,7 +344,6 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
         output: timelineOut,
       });
 
-      // Impact Analyzer
       const impactFeedback = await runImpactAnalyzer({
         timeline: timelineOut.timeline,
         script: scriptOut.script,

@@ -11,7 +11,7 @@ import type {
   AgentNodeState,
 } from "./types";
 import { createInitialPipelineState } from "./types";
-import { runTopicClarifier } from "./topic-clarifier";
+import { runTopicClarifierStub } from "./topic-clarifier.stub";
 import { runNicheResearcher } from "./niche-researcher";
 import { runVideoSuggester } from "./video-suggester";
 import { runIdeaRefiner } from "./idea-refiner";
@@ -97,7 +97,7 @@ async function topicClarifierNode(state: GraphState): Promise<Partial<GraphState
 
   let output: TopicClarifierOutput;
   try {
-    output = await runTopicClarifier(input);
+    output = await runTopicClarifierStub(input);
   } catch (e) {
     return {
       topicClarifier: {

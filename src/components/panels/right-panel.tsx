@@ -12,23 +12,29 @@ interface RightPanelProps {
 
 export function RightPanel({ title = "Inspector", subtitle, children }: RightPanelProps) {
   return (
-    <aside className="flex h-full w-[280px] flex-col border-l border-border/60 bg-card/50">
-      <div className="flex items-center justify-between px-3 py-2">
+    <aside className="flex h-full min-h-0 w-[280px] flex-col border-l border-border/60 bg-card/50">
+      <div className="flex shrink-0 items-center justify-between px-3 py-2">
         <span className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
           {title}
         </span>
         {subtitle && (
-          <span className="text-[10px] text-muted-foreground/50">{subtitle}</span>
+          <span className="max-w-[140px] truncate text-[10px] text-muted-foreground/50">
+            {subtitle}
+          </span>
         )}
       </div>
 
-      <Separator className="opacity-50" />
+      <Separator className="shrink-0 opacity-50" />
 
-      <ScrollArea className="flex-1">
-        <div className="flex flex-col gap-3 p-3">
-          {children ?? <DefaultInspectorContent />}
-        </div>
-      </ScrollArea>
+      {children ? (
+        <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="flex flex-col gap-3 p-3">
+            <DefaultInspectorContent />
+          </div>
+        </ScrollArea>
+      )}
     </aside>
   );
 }
