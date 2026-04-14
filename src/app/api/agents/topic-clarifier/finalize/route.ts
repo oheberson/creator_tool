@@ -1,7 +1,7 @@
 import { generateObject } from "ai";
 import type { ClarifierMessage, NicheDefinition } from "@/lib/agents/types";
 import {
-  getOpenAIProvider,
+  getGroqProvider,
   TOPIC_CLARIFIER_FINALIZE_MODEL,
 } from "@/lib/ai/model";
 import { nicheDefinitionSchema } from "@/lib/agents/niche-definition-schema";
@@ -45,9 +45,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const openai = getOpenAIProvider();
+    const groq = getGroqProvider();
     const { object } = await generateObject({
-      model: openai(TOPIC_CLARIFIER_FINALIZE_MODEL),
+      model: groq(TOPIC_CLARIFIER_FINALIZE_MODEL),
       schema: nicheDefinitionSchema,
       system: TOPIC_CLARIFIER_FINALIZE_SYSTEM,
       prompt: `Here is the full conversation. Produce the niche definition JSON.\n\n${formatTranscript(messages)}`,
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     return Response.json({ nicheDefinition });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    if (message.includes("OPENAI_API_KEY")) {
+    if (message.includes("GROQ_API_KEY")) {
       return Response.json({ error: message }, { status: 503 });
     }
     console.error("[topic-clarifier/finalize]", e);

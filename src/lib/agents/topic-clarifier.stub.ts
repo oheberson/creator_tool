@@ -7,7 +7,7 @@ import type {
 
 /**
  * Deterministic stub for LangGraph integration tests and offline use.
- * Production UI uses the OpenAI-backed API routes instead.
+ * Production UI uses the Groq-backed API routes instead.
  */
 export async function runTopicClarifierStub(
   input: TopicClarifierInput

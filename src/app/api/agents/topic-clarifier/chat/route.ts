@@ -1,7 +1,7 @@
 import { streamText } from "ai";
 import type { ClarifierMessage } from "@/lib/agents/types";
 import {
-  getOpenAIProvider,
+  getGroqProvider,
   TOPIC_CLARIFIER_CHAT_MODEL,
 } from "@/lib/ai/model";
 import { TOPIC_CLARIFIER_CHAT_SYSTEM } from "@/lib/agents/topic-clarifier-prompts";
@@ -46,9 +46,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const openai = getOpenAIProvider();
+    const groq = getGroqProvider();
     const result = streamText({
-      model: openai(TOPIC_CLARIFIER_CHAT_MODEL),
+      model: groq(TOPIC_CLARIFIER_CHAT_MODEL),
       system: TOPIC_CLARIFIER_CHAT_SYSTEM,
       messages: messages.map((m) => ({
         role: m.role,
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     return result.toTextStreamResponse();
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    if (message.includes("OPENAI_API_KEY")) {
+    if (message.includes("GROQ_API_KEY")) {
       return Response.json({ error: message }, { status: 503 });
     }
     console.error("[topic-clarifier/chat]", e);

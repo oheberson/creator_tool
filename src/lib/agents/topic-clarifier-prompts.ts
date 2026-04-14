@@ -1,5 +1,5 @@
 /**
- * System prompts for the Topic Clarifier (OpenAI via Vercel AI SDK).
+ * System prompts for the Topic Clarifier (Groq via Vercel AI SDK).
  * Helper-first: coach the creator; do not replace their decisions.
  */
 

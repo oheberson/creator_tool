@@ -38,7 +38,7 @@ interface PipelineStore {
   setTopicClarifierError: (message: string | null) => void;
 
   /**
-   * Calls OpenAI via POST /api/agents/topic-clarifier/finalize — human-in-the-loop "done".
+   * Calls Groq (via API) through POST /api/agents/topic-clarifier/finalize — human-in-the-loop "done".
    * Sets nicheDefinition, isComplete, and marks node complete for downstream agents.
    */
   finalizeTopicClarifier: () => Promise<void>;
