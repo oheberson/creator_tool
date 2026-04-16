@@ -7,8 +7,7 @@ import type {
   NicheDefinition,
 } from "@/lib/agents/types";
 import { createInitialPipelineState } from "@/lib/agents/types";
-import { runNicheResearcher } from "@/lib/agents/niche-researcher";
-import { runVideoSuggester } from "@/lib/agents/video-suggester";
+import type { NicheResearcherOutput, VideoSuggesterOutput } from "@/lib/agents/types";
 import { runIdeaRefiner } from "@/lib/agents/idea-refiner";
 import { runScriptWriter } from "@/lib/agents/script-writer";
 import { runTimelineBuilder } from "@/lib/agents/timeline-builder";
@@ -19,6 +18,19 @@ interface WorkspaceProject {
   title: string;
   status: "draft" | "in_progress" | "complete";
   pipeline: PipelineState;
+}
+
+async function postAgentJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
 }
 
 interface PipelineStore {
@@ -308,11 +320,15 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
 
     setAgent("nicheResearcher", "running");
     try {
-      const researchOut = await runNicheResearcher({ nicheDefinition: niche });
+      const researchOut = await postAgentJson<NicheResearcherOutput>("/api/agents/niche-researcher", {
+        nicheDefinition: niche,
+      });
       setAgent("nicheResearcher", "complete", { input: { nicheDefinition: niche }, output: researchOut });
 
       setAgent("videoSuggester", "running");
-      const suggestOut = await runVideoSuggester({ report: researchOut.report });
+      const suggestOut = await postAgentJson<VideoSuggesterOutput>("/api/agents/video-suggester", {
+        report: researchOut.report,
+      });
       setAgent("videoSuggester", "complete", { input: { report: researchOut.report }, output: suggestOut });
 
       setAgent("ideaRefiner", "running");
@@ -357,7 +373,29 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
         })),
       }));
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "Pipeline step failed";
       console.error("Pipeline error:", e);
+      const current = get().getActiveProject()?.pipeline;
+      const markError = (agent: AgentName) => {
+        set((s) => ({
+          projects: updateProject(s.projects, activeProjectId, (p) => ({
+            pipeline: {
+              ...p.pipeline,
+              [agent]: {
+                ...p.pipeline[agent],
+                status: "error" as const,
+                error: msg,
+              },
+            },
+          })),
+        }));
+      };
+      if (current?.nicheResearcher.status === "running") markError("nicheResearcher");
+      else if (current?.videoSuggester.status === "running") markError("videoSuggester");
+      else if (current?.ideaRefiner.status === "running") markError("ideaRefiner");
+      else if (current?.scriptWriter.status === "running") markError("scriptWriter");
+      else if (current?.timelineBuilder.status === "running") markError("timelineBuilder");
+      else markError("nicheResearcher");
     }
   },
 }));

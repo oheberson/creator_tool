@@ -1,12 +1,13 @@
-import { streamText } from "ai";
+import { streamText, stepCountIs } from "ai";
 import type { ClarifierMessage } from "@/lib/agents/types";
 import {
   getGroqProvider,
   TOPIC_CLARIFIER_CHAT_MODEL,
 } from "@/lib/ai/model";
 import { TOPIC_CLARIFIER_CHAT_SYSTEM } from "@/lib/agents/topic-clarifier-prompts";
+import { topicClarifierChatTools } from "@/lib/agents/topic-clarifier-chat-tools";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 interface Body {
   messages: ClarifierMessage[];
@@ -54,6 +55,8 @@ export async function POST(req: Request) {
         role: m.role,
         content: m.content,
       })),
+      tools: topicClarifierChatTools,
+      stopWhen: stepCountIs(5),
     });
 
     return result.toTextStreamResponse();

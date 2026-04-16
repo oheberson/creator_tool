@@ -2,6 +2,7 @@ import { generateObject } from "ai";
 import type { ClarifierMessage, NicheDefinition } from "@/lib/agents/types";
 import {
   getGroqProvider,
+  groqStructuredObjectProviderOptions,
   TOPIC_CLARIFIER_FINALIZE_MODEL,
 } from "@/lib/ai/model";
 import { nicheDefinitionSchema } from "@/lib/agents/niche-definition-schema";
@@ -17,6 +18,24 @@ function formatTranscript(messages: ClarifierMessage[]): string {
   return messages
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n\n");
+}
+
+/**
+ * Groq json_object mode sometimes wraps JSON in markdown or adds prose — extract `{ ... }`.
+ */
+function repairObjectJsonText(text: string): string | null {
+  const trimmed = text.trim();
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  if (fence?.[1]) {
+    const inner = fence[1].trim();
+    if (inner.startsWith("{")) return inner;
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return trimmed.slice(start, end + 1);
+  }
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -51,6 +70,9 @@ export async function POST(req: Request) {
       schema: nicheDefinitionSchema,
       system: TOPIC_CLARIFIER_FINALIZE_SYSTEM,
       prompt: `Here is the full conversation. Produce the niche definition JSON.\n\n${formatTranscript(messages)}`,
+      providerOptions: groqStructuredObjectProviderOptions,
+      maxRetries: 3,
+      experimental_repairText: async ({ text }) => repairObjectJsonText(text),
     });
 
     const nicheDefinition: NicheDefinition = {

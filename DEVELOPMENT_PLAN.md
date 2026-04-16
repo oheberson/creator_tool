@@ -145,7 +145,7 @@ Every feature is tagged with its target phase: **MVP**, **v1**, **v2**, or **v3+
 | **UI** | React 19 + Tailwind CSS + shadcn/ui + Framer Motion | Modern component library, utility-first styling, smooth animations |
 | **Node Canvas** | xyflow (React Flow) | Most mature infinite-canvas library; custom nodes, edges, real-time updates, drag-and-drop |
 | **Agent Orchestration** | LangGraph.js | Stateful directed graphs with checkpointing; perfect for sequential-but-revisitable, human-in-the-loop agent pipelines |
-| **AI Models** | Vercel AI SDK + Claude / GPT-4o / Gemini | Multi-provider flexibility; streaming responses; multi-modal support for image/video analysis. **Confirmed as the provider abstraction layer.** See note in section 4.3 on how it interfaces with LangGraph.js. |
+| **AI Models** | Vercel AI SDK + Claude / GPT-4o / Gemini / Groq | Multi-provider flexibility; streaming responses; multi-modal support for image/video analysis. **Vercel AI SDK is the provider abstraction layer** (transport + tool calling). Runtime choice already includes **Groq** for some routes (e.g. Topic Clarifier chat); add or swap providers via config, not rewrites. See section 4.3. |
 | **Database** | Supabase (PostgreSQL + pgvector) | Auth, relational data, vector search for RAG, Realtime subscriptions, Storage — single managed service. **Instance created and connected via MCP** (empty, tables to be created in Phase 0). |
 | **State Management** | Zustand | Lightweight, performant client state; integrates cleanly with React Flow's internal store |
 | **Video Processing** | FFmpeg.wasm + WebCodecs API | Browser-first video encoding; zero server cost; privacy-preserving (files stay on device) |
@@ -171,8 +171,9 @@ graph TD
     end
 
     subgraph external ["External Services"]
-        LLM["LLM Providers\nClaude / GPT-4o / Gemini"]
+        LLM["LLM Providers\nClaude / GPT-4o / Gemini / Groq"]
         YouTube["YouTube Data API v3"]
+        Algrow["Algrow REST API\noptional Research+"]
         GenAI["Generative APIs\nElevenLabs / Runway / Pika"]
     end
 
@@ -192,6 +193,7 @@ graph TD
     API --> LangGraph
     LangGraph --> LLM
     LangGraph --> YouTube
+    LangGraph --> Algrow
     LangGraph --> GenAI
 
     API --> Auth
@@ -201,7 +203,18 @@ graph TD
     Realtime --> UI
 ```
 
-### 3.3 Component Breakdown
+### 3.3 External research backends
+
+Research agents need **grounded, structured YouTube data**. Two complementary layers:
+
+1. **YouTube Data API v3 (baseline, MVP)** — Official Google API; search, metadata, quotas, no custom scraping in *our* codebase. Primary path for shipping MVP per Sprint 2.
+2. **Algrow REST API ([api.algrow.online](https://api.algrow.online), [docs](https://algrow.online/api/docs)) — Optional **“Research+”** provider: channel similarity and growth filters, viral/outlier video search, unified search, channel about/daily analytics, async scraper with transcripts (plan tiers apply; some endpoints are Pro/Ultimate in vendor docs). **Integrate server-side only** (API route / LangGraph tools); never expose vendor keys in the browser.
+
+**Algrow MCP ([mcp.algrow.online](https://algrow.online/mcp))** — Model Context Protocol server for **Cursor / Claude / assistants**: excellent for *developers* shaping prompts, inspecting payloads, and drafting fixtures. **Not** the production path for end users (creators do not run our IDE MCP config). Shipping features call the **same capabilities via REST** from Vercel.
+
+**Policy note:** Section 2.3 commits to **no scraping** in our own implementation. Delegating retrieval to a **documented third-party API** (Algrow’s scraper/transcript jobs) is a separate compliance and dependency decision: document vendor ToS, cache results in `research_cache`, and gate usage (feature flag / Pro tier) so unit economics stay controlled.
+
+### 3.4 Component Breakdown
 
 ```
 src/
@@ -274,6 +287,10 @@ graph LR
 - **Behavior:** Interactive, multi-turn conversation. Asks targeted follow-up questions to narrow
   the scope ("Which sport?", "Which league?", "Video essays or live updates?", "Betting angle?").
   Checks the RAG cache for existing research on similar niches to accelerate the process.
+- **Tool strategy (helper-first):** Default posture is **prompt-only chat** so the coach never
+  presents unlabeled metrics as facts. Optional later: **one or two read-only tools** (e.g. live
+  channel search) with strict UI/prompt rules — always attribute data to the source, offer search
+  instead of asserting, never treat API rows as the user’s confirmed niche.
 - **Input:** Raw user text.
 - **Output:** `NicheDefinition` object — category, sub-category, audience profile, content tone,
   competitive landscape summary.
@@ -286,6 +303,10 @@ graph LR
 - **Behavior:** Queries pgvector for existing research on the niche. If cache hit, surfaces stored
   insights immediately. If miss, triggers fresh research via YouTube Data API (top channels, most
   viewed videos, growth trends) and web research. Stores new embeddings for future reuse.
+- **Tool-backed research:** Implement as **LangGraph tools** wrapping HTTP clients: baseline
+  **YouTube Data API v3**; optionally **Algrow REST** (longform/Shorts channel search, growth and
+  similarity filters, channel about/daily analytics) when enabled — normalize all vendor responses
+  into `NicheResearchReport` / shared DTOs in `src/lib/agents/types.ts`.
 - **Input:** `NicheDefinition`.
 - **Output:** `NicheResearchReport` — top channels, video performance benchmarks, audience
   demographics, content gaps, trending sub-topics.
@@ -299,6 +320,9 @@ graph LR
   all-time top performers, and "hidden gem" videos in the niche. Presents them with thumbnails,
   view counts, and brief AI-generated analysis of why each is relevant. Listens for user
   reactions and updates context accordingly.
+- **Tool-backed curation:** Same pattern as Agent 2 — tools for search/list/detail; optionally
+  **Algrow viral video search** (outlier scores, recency, similarity to a seed) when Research+ is
+  enabled. LLM explains *why* each reference matters using only tool-returned facts.
 - **Input:** `NicheResearchReport`.
 - **Output:** `VideoReferenceSet` — list of reference videos with metadata and relevance tags;
   updated user preference signals.
@@ -363,8 +387,9 @@ Each agent is a node in a LangGraph directed graph with:
   - Undo: restore any previous checkpoint.
 - **Human-in-the-loop interrupts:** Every agent pauses for user review before marking its output
   as confirmed and triggering the next agent.
-- **Tool calling:** Agents have access to tools (YouTube API, RAG query, web search) via LangGraph's
-  tool-calling mechanism.
+- **Tool calling:** Agents have access to tools (YouTube Data API, optional Algrow REST, RAG query,
+  web search) via LangGraph's tool-calling mechanism. Prefer **typed tool outputs** mapped into
+  pipeline DTOs so checkpoints stay reproducible.
 
 #### How Vercel AI SDK and LangGraph.js work together
 
@@ -373,7 +398,7 @@ Each agent is a node in a LangGraph directed graph with:
 > in Sprint 1 to validate the integration.
 
 - **Vercel AI SDK** handles the LLM communication layer: sending prompts, streaming responses,
-  managing provider-specific API differences (Claude, GPT-4o, Gemini), and exposing a unified
+  managing provider-specific API differences (Claude, GPT-4o, Gemini, Groq, …), and exposing a unified
   interface for tool calling. It abstracts away the transport so switching providers is a config
   change, not a code rewrite.
 - **LangGraph.js** handles the orchestration layer: defining the directed graph of agents, managing
@@ -825,6 +850,7 @@ upgrade moment — the user has a complete timeline and wants to bring it to lif
 | LangGraph.js maturity / breaking changes | Medium | Pin versions aggressively. Abstract agent definitions behind an internal interface so the orchestrator is swappable. |
 | React Flow performance with many nodes | Low | The pipeline has 6-10 nodes max. Not a concern unless we add sub-flows. Monitor if templates grow complex. |
 | YouTube Data API quotas | Medium | Cache aggressively in RAG. Implement per-user quota awareness. Apply for higher quota if needed. |
+| Third-party research APIs (e.g. Algrow) | Medium | Optional provider: vendor pricing/plan gates (scraper/TTS), rate limits, API shape drift. Mitigate with feature flags, server-only keys, response normalization layer, aggressive caching in `research_cache`, and fallback to YouTube Data API only. |
 | Multi-modal AI costs (video/image analysis) | Medium | Use multi-modal only for asset analysis (opt-in). Text-based agents use cheaper models where possible. |
 
 ### Product Risks
@@ -853,6 +879,10 @@ upgrade moment — the user has a complete timeline and wants to bring it to lif
    Vercel's provided URL; custom domain to be configured later. No self-hosting planned.
 6. **Content moderation:** Deferred. Not a concern for MVP or v1 (private tool). Will be revisited
    when shared/community RAG is introduced in v2.
+7. **Single vs dual research provider for MVP:** Ship **YouTube Data API only** first, or enable
+   **Algrow alongside** for Research+ from day one? Ties to budget and differentiation goals.
+8. **Algrow unit economics:** If Algrow (or similar) is enabled, do we **pass through** usage cost
+   (metered / Pro-only), **absorb** in subscription, or **defer** until post-validation?
 
 ---
 
@@ -871,3 +901,4 @@ upgrade moment — the user has a complete timeline and wants to bring it to lif
 | Supabase | Backend-as-a-service | https://supabase.com/docs |
 | Stripe | Payments | https://stripe.com/docs |
 | YouTube Data API v3 | Video/channel data | https://developers.google.com/youtube/v3 |
+| Algrow API (optional) | Enriched YouTube research, viral search, scraper/transcripts | https://algrow.online/api/docs |
